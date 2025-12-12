@@ -22,7 +22,6 @@ async fn main() -> Result<(), std::io::Error> {
         PgPool::connect_lazy(configuration.database.connection_string().expose_secret())
             .expect("Failed to connect to Postgres.");
 
-    let address = format!("{}", address);
-    let listener = TcpListener::bind(address)?;
+    let listener = TcpListener::bind(address.to_string())?;
     run(listener, connection_pool)?.await
 }

@@ -35,11 +35,11 @@ impl EmailClient {
         let base = reqwest::Url::parse(&self.base_url).expect("Invalid base URL");
         let url = base.join("/email").expect("Failed to construct URL");
         let request_body = SendEmailRequest {
-            from: self.sender.as_ref().to_owned(),
-            to: recipient.as_ref().to_owned(),
-            subject: subject.to_owned(),
-            html_body: html_content.to_owned(),
-            text_body: text_content.to_owned(),
+            from: self.sender.as_ref(),
+            to: recipient.as_ref(),
+            subject,
+            html_body: html_content,
+            text_body: text_content,
         };
         let _builder = self
             .http_client
@@ -57,16 +57,17 @@ impl EmailClient {
 
 #[derive(Serialize)]
 #[serde(rename_all = "PascalCase")]
-struct SendEmailRequest {
-    from: String,
-    to: String,
-    subject: String,
-    html_body: String,
-    text_body: String,
+struct SendEmailRequest<'a> {
+    from: &'a str,
+    to: &'a str,
+    subject: &'a str,
+    html_body: &'a str,
+    text_body: &'a str,
 }
 
 #[cfg(test)]
 mod tests {
+    use claims::assert_ok;
     use fake::{
         Fake,
         faker::{
@@ -77,7 +78,7 @@ mod tests {
     use secrecy::SecretString;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
-        matchers::{header, header_exists, method, path},
+        matchers::{any, header, header_exists, method, path},
     };
 
     use crate::{domain::SubscriberEmail, email_client::EmailClient};
@@ -100,7 +101,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_email_sends_the_exoected_request() {
+    async fn send_email_sends_the_expected_request() {
         // Arrange
         let mock_server = MockServer::start().await;
         let sender = SubscriberEmail::parse(SafeEmail().fake()).unwrap();
@@ -130,5 +131,35 @@ mod tests {
             .await;
 
         // Assert
+    }
+
+    #[tokio::test]
+    async fn send_email_succeeds_if_the_server_returns_200() {
+        // Arrange
+        let mock_server = MockServer::start().await;
+        let sender = SubscriberEmail::parse(SafeEmail().fake()).unwrap();
+        let email_client = EmailClient::new(
+            mock_server.uri(),
+            sender,
+            SecretString::new(Sentence(1..2).fake::<String>().into()),
+        );
+
+        let subscriber_email = SubscriberEmail::parse(SafeEmail().fake()).unwrap();
+        let subject: String = Sentence(1..2).fake();
+        let content: String = Paragraph(1..10).fake();
+
+        Mock::given(any())
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+
+        // Act
+        let outcome = email_client
+            .send_email(subscriber_email, &subject, &content, &content)
+            .await;
+
+        // Assert
+        assert_ok!(outcome);
     }
 }
